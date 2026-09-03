@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>لساني — أداة تحويل الأصوات إلى كلام</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #10161f;
+    --panel: #161f2c;
+    --panel-2: #1d283a;
+    --line: #2a3648;
+    --text: #eef2f6;
+    --text-dim: #8b98ab;
+    --mint: #5fe3b8;
+    --mint-dim: #2e5a4c;
+    --amber: #f2b84b;
+    --red: #ef6a6a;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: radial-gradient(1200px 800px at 50% -10%, #16202e 0%, var(--bg) 55%);
+    color: var(--text);
+    font-family: 'Tajawal', sans-serif;
+    min-height: 100vh;
+    padding: 24px 16px 60px;
+  }
+  .wrap{ max-width: 640px; margin: 0 auto; }
+
+  .brand{ text-align:center; margin-bottom: 28px; }
+  .brand h1{ font-size: 30px; font-weight: 900; margin: 0 0 4px; letter-spacing: 0.5px; }
+  .brand p{ color: var(--text-dim); margin:0; font-size: 14px; }
+
+  .stage{
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    padding: 32px 20px 26px;
+    text-align: center;
+    margin-bottom: 18px;
+  }
+
+  .ring-wrap{ position:relative; width:180px; height:180px; margin: 0 auto 18px; }
+  .ring-bg{ position:absolute; inset:0; border-radius:50%; background: var(--panel); border: 2px solid var(--line); }
+  .ring-level{
+    position:absolute; inset:0; border-radius:50%;
+    background: conic-gradient(var(--mint) calc(var(--lvl,0) * 1%), transparent 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 10px), #000 calc(100% - 9px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 10px), #000 calc(100% - 9px));
+    transition: background 60ms linear;
+  }
+  .ring-core{
+    position:absolute; inset:14px; border-radius:50%;
+    background: var(--panel-2);
+    display:flex; align-items:center; justify-content:center;
+    flex-direction: column;
+    border: 1px solid var(--line);
+  }
+  .ring-core .dot{
+    width: 14px; height:14px; border-radius:50%; background: var(--text-dim);
+    transition: background .15s, box-shadow .15s;
+  }
+  .ring-core.listening .dot{ background: var(--mint); box-shadow: 0 0 18px 2px var(--mint-dim); }
+  .ring-core.zero .dot{ background: var(--amber); box-shadow: 0 0 18px 2px var(--amber); }
+  .ring-core.one .dot{ background: #6ea8ff; box-shadow: 0 0 18px 2px #274a7a; }
+
+  .status{ font-size: 19px; font-weight: 700; margin-bottom: 4px; min-height: 26px; }
+  .status.sub{ font-size: 13px; color: var(--text-dim); font-weight: 500; margin-bottom: 18px; }
+
+  .bits{
+    font-size: 15px; letter-spacing: 6px; color: var(--mint);
+    min-height: 20px; margin-bottom: 6px; font-weight: 700;
+    word-break: break-all;
+  }
+  .last-word{
+    font-size: 26px; font-weight: 900; min-height: 34px;
+  }
+  .last-word .unknown{ color: var(--red); font-size: 15px; font-weight: 500; }
+
+  .btn-row{ display:flex; gap:10px; justify-content:center; margin-top: 18px; flex-wrap: wrap; }
+  button{
+    font-family: inherit; font-size: 14px; font-weight: 700;
+    border-radius: 12px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--text);
+    padding: 10px 16px; cursor: pointer;
+  }
+  button.primary{ background: var(--mint); color: #0b1a15; border-color: var(--mint); }
+  button.ghost{ background: transparent; }
+  button:active{ transform: translateY(1px); }
+  button:disabled{ opacity: .45; cursor:not-allowed; }
+
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 18px 18px 20px;
+    margin-bottom: 16px;
+  }
+  .panel h2{ font-size: 15px; margin: 0 0 12px; color: var(--text-dim); font-weight: 700; }
+
+  .slider-row{ margin-bottom: 14px; }
+  .slider-row label{ font-size: 13px; color: var(--text-dim); display:flex; justify-content:space-between; margin-bottom:6px; }
+  input[type=range]{ width: 100%; accent-color: var(--mint); }
+
+  .dict-form{ display:flex; gap:8px; margin-bottom: 14px; }
+  .dict-form input[type=text]{
+    font-family:inherit; background: var(--panel-2); border:1px solid var(--line);
+    color: var(--text); border-radius: 10px; padding: 9px 12px; font-size:14px;
+  }
+  .dict-form input#codeInput{ width: 90px; text-align:center; letter-spacing: 3px; font-weight:700; }
+  .dict-form input#wordInput{ flex:1; min-width: 0; }
+
+  table{ width:100%; border-collapse: collapse; font-size: 14px; }
+  th{ text-align: right; color: var(--text-dim); font-weight: 600; font-size: 12px; padding-bottom: 6px; }
+  td{ padding: 8px 0; border-top: 1px solid var(--line); }
+  td.code{ font-weight:700; color: var(--mint); letter-spacing: 2px; width: 90px; }
+  td.del{ text-align:left; width: 30px; }
+  td.del button{ padding: 4px 9px; font-size: 12px; border-color: var(--red); color: var(--red); background: transparent; }
+
+  .hint{ font-size: 12px; color: var(--text-dim); line-height: 1.9; margin-top: 6px; }
+  .footer-note{ text-align:center; color: var(--text-dim); font-size: 12px; margin-top: 20px; }
+
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="brand">
+    <h1>لساني</h1>
+    <p>يحوّل صوتين بسيطين إلى كلمات كاملة</p>
+  </div>
+
+  <div class="stage">
+    <div class="ring-wrap">
+      <div class="ring-bg"></div>
+      <div class="ring-level" id="ringLevel"></div>
+      <div class="ring-core" id="ringCore"><div class="dot"></div></div>
+    </div>
+
+    <div class="status" id="statusText">جاري التجهيز…</div>
+    <div class="status sub" id="statusSub">امنح الأداة إذن استخدام الميكروفون</div>
+
+    <div class="bits" id="bitsText"></div>
+    <div class="last-word" id="lastWord"></div>
+
+    <div class="btn-row">
+      <button class="primary" id="startBtn">بدء</button>
+      <button class="ghost hidden" id="recalBtn">إعادة معايرة الصوتين</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>الإعدادات</h2>
+    <div class="slider-row">
+      <label><span>حساسية الميكروفون</span><span id="sensVal">متوسطة</span></label>
+      <input type="range" id="sensSlider" min="1" max="20" value="8">
+    </div>
+    <div class="slider-row">
+      <label><span>مدة الوقفة بين الكلمات</span><span id="gapVal">1.2 ثانية</span></label>
+      <input type="range" id="gapSlider" min="6" max="25" value="12">
+    </div>
+    <div class="hint">لما توقف بين صوت والتاني بره الكلمة، الأداة تنتظر بالمدة دي قبل ما تعتبر إن الكلمة خلصت وتنطقها.</div>
+  </div>
+
+  <div class="panel">
+    <h2>القاموس</h2>
+    <div class="dict-form">
+      <input type="text" id="codeInput" placeholder="001" maxlength="10">
+      <input type="text" id="wordInput" placeholder="الكلمة، مثلاً: ماما">
+      <button id="addWordBtn">إضافة</button>
+    </div>
+    <table>
+      <thead><tr><th>الكود</th><th>الكلمة</th><th></th></tr></thead>
+      <tbody id="dictBody"></tbody>
+    </table>
+    <div class="hint">
+      الكود مكوّن من 0 و1 بس. 0 = الصوت الأول اللي سجلته، 1 = الصوت التاني.<br>
+      مثال: لو 0=o و1=a، وقلت "o o a" الأداة تقرأها 001 وتدوّر عليها في القاموس.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>سجل الجلسة</h2>
+    <div class="hint" id="logBox" style="max-height:140px; overflow-y:auto;">لسه معملتش أي كلمة.</div>
+  </div>
+
+  <div class="footer-note">كل حاجة بتشتغل جوا المتصفح، مفيش أي صوت أو بيانات بتتبعت لأي سيرفر.</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- persistent state ----------
+  const DEFAULT_DICT = { "001": "ماما", "010": "تحبني" };
+  let dict = loadJSON('lisani_dict', DEFAULT_DICT);
+  let sensitivity = loadJSON('lisani_sens', 8);   // 1..20 -> lower means more sensitive
+  let wordGapMs = loadJSON('lisani_gap', 1200);
+
+  function loadJSON(key, fallback){
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+    catch(e){ return fallback; }
+  }
+  function saveJSON(key, val){ try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){} }
+
+  // ---------- DOM ----------
+  const statusText = document.getElementById('statusText');
+  const statusSub  = document.getElementById('statusSub');
+  const bitsText   = document.getElementById('bitsText');
+  const lastWordEl = document.getElementById('lastWord');
+  const ringLevel  = document.getElementById('ringLevel');
+  const ringCore   = document.getElementById('ringCore');
+  const startBtn   = document.getElementById('startBtn');
+  const recalBtn   = document.getElementById('recalBtn');
+  const sensSlider = document.getElementById('sensSlider');
+  const sensVal    = document.getElementById('sensVal');
+  const gapSlider  = document.getElementById('gapSlider');
+  const gapVal     = document.getElementById('gapVal');
+  const codeInput  = document.getElementById('codeInput');
+  const wordInput  = document.getElementById('wordInput');
+  const addWordBtn = document.getElementById('addWordBtn');
+  const dictBody   = document.getElementById('dictBody');
+  const logBox     = document.getElementById('logBox');
+
+  sensSlider.value = sensitivity;
+  gapSlider.value = Math.round(wordGapMs/100);
+  updateSensLabel(); updateGapLabel();
+
+  sensSlider.addEventListener('input', ()=>{
+    sensitivity = Number(sensSlider.value);
+    saveJSON('lisani_sens', sensitivity);
+    updateSensLabel();
+  });
+  gapSlider.addEventListener('input', ()=>{
+    wordGapMs = Number(gapSlider.value) * 100;
+    saveJSON('lisani_gap', wordGapMs);
+    updateGapLabel();
+  });
+  function updateSensLabel(){
+    const v = sensitivity;
+    sensVal.textContent = v<=6 ? 'عالية' : v<=13 ? 'متوسطة' : 'منخفضة';
+  }
+  function updateGapLabel(){
+    gapVal.textContent = (wordGapMs/1000).toFixed(1) + ' ثانية';
+  }
+
+  // ---------- dictionary UI ----------
+  function renderDict(){
+    dictBody.innerHTML = '';
+    const codes = Object.keys(dict).sort((a,b)=> a.length-b.length || a.localeCompare(b));
+    if(codes.length === 0){
+      dictBody.innerHTML = '<tr><td colspan="3" style="color:var(--text-dim)">القاموس فاضي</td></tr>';
+      return;
+    }
+    for(const code of codes){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td class="code">${code}</td><td>${escapeHtml(dict[code])}</td>
+        <td class="del"><button data-code="${code}">حذف</button></td>`;
+      dictBody.appendChild(tr);
+    }
+    dictBody.querySelectorAll('button[data-code]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        delete dict[b.dataset.code];
+        saveJSON('lisani_dict', dict);
+        renderDict();
+      });
+    });
+  }
+  function escapeHtml(s){
+    return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  addWordBtn.addEventListener('click', ()=>{
+    const code = codeInput.value.trim();
+    const word = wordInput.value.trim();
+    if(!/^[01]+$/.test(code)){ alert('الكود لازم يتكون من 0 و1 بس'); return; }
+    if(!word){ alert('اكتب الكلمة'); return; }
+    dict[code] = word;
+    saveJSON('lisani_dict', dict);
+    codeInput.value=''; wordInput.value='';
+    renderDict();
+  });
+  renderDict();
+
+  // ---------- speech output ----------
+  function speak(text){
+    if(!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ar-SA';
+    const voices = speechSynthesis.getVoices();
+    const arVoice = voices.find(v => v.lang && v.lang.startsWith('ar'));
+    if(arVoice) u.voice = arVoice;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }
+
+  function logLine(text, ok){
+    if(logBox.dataset.empty !== 'false'){ logBox.innerHTML = ''; logBox.dataset.empty = 'false'; }
+    const line = document.createElement('div');
+    line.style.color = ok ? 'var(--text)' : 'var(--red)';
+    line.textContent = (ok ? '✔ ' : '⚠ ') + text;
+    logBox.prepend(line);
+  }
+
+  // ---------- audio engine ----------
+  let audioCtx, analyser, source, stream;
+  let timeData, freqData;
+  const FFT_SIZE = 2048;
+  const FEATURE_BUCKETS = 24;
+
+  // calibration refs
+  let ref0 = null, ref1 = null;
+
+  // runtime state
+  let phase = 'idle'; // idle -> calib0 -> calib1 -> listening
+  let rafId = null;
+  let voicing = false;
+  let voiceStartTime = 0;
+  let segmentFeatures = [];
+  let silenceStart = null;
+  let currentBits = '';
+  const MIN_SEGMENT_MS = 120;      // ignore very short blips
+  const MIN_CALIB_MS = 350;        // calibration needs a slightly longer, clean sample
+
+  function noiseFloorFromSensitivity(){
+    // sensitivity slider 1(high sens)..20(low sens) -> RMS threshold 0.015..0.09
+    return 0.015 + (sensitivity/20)*0.075;
+  }
+
+  async function initAudio(){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation:true, noiseSuppression:true, autoGainControl:true
+    }});
+    source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = FFT_SIZE;
+    analyser.smoothingTimeConstant = 0.4;
+    source.connect(analyser);
+    timeData = new Uint8Array(analyser.fftSize);
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+  }
+
+  function getRMS(){
+    analyser.getByteTimeDomainData(timeData);
+    let sum = 0;
+    for(let i=0;i<timeData.length;i++){
+      const v = (timeData[i]-128)/128;
+      sum += v*v;
+    }
+    return Math.sqrt(sum/timeData.length);
+  }
+
+  function getFeatureVector(){
+    analyser.getByteFrequencyData(freqData);
+    // only look at ~80Hz-4000Hz range which covers vowel formants
+    const nyquist = audioCtx.sampleRate/2;
+    const binHz = nyquist/freqData.length;
+    const loBin = Math.max(0, Math.floor(80/binHz));
+    const hiBin = Math.min(freqData.length-1, Math.ceil(4000/binHz));
+    const span = hiBin - loBin;
+    const bucketSize = Math.max(1, Math.floor(span/FEATURE_BUCKETS));
+    const vec = [];
+    for(let b=0; b<FEATURE_BUCKETS; b++){
+      let s=0, c=0;
+      const start = loBin + b*bucketSize;
+      const end = Math.min(hiBin, start+bucketSize);
+      for(let i=start;i<end;i++){ s+=freqData[i]; c++; }
+      vec.push(c? s/c : 0);
+    }
+    const total = vec.reduce((a,b)=>a+b,0) || 1;
+    return vec.map(v=>v/total); // normalize -> spectral shape, volume independent
+  }
+
+  function averageVectors(list){
+    const n = list.length, len = list[0].length;
+    const out = new Array(len).fill(0);
+    for(const v of list) for(let i=0;i<len;i++) out[i]+=v[i];
+    return out.map(x=>x/n);
+  }
+
+  function cosineSim(a,b){
+    let dot=0, na=0, nb=0;
+    for(let i=0;i<a.length;i++){ dot+=a[i]*b[i]; na+=a[i]*a[i]; nb+=b[i]*b[i]; }
+    if(na===0||nb===0) return 0;
+    return dot/(Math.sqrt(na)*Math.sqrt(nb));
+  }
+
+  function setRing(level, mode){
+    ringLevel.style.setProperty('--lvl', Math.min(100, Math.round(level*100*4)));
+    ringCore.classList.remove('listening','zero','one');
+    if(mode) ringCore.classList.add(mode);
+  }
+
+  function finalizeWord(){
+    if(!currentBits){ return; }
+    const word = dict[currentBits];
+    if(word){
+      lastWordEl.innerHTML = word;
+      speak(word);
+      logLine(currentBits + '  →  ' + word, true);
+    } else {
+      lastWordEl.innerHTML = '<span class="unknown">كود غير موجود بالقاموس: ' + currentBits + '</span>';
+      logLine(currentBits + '  →  غير معروف', false);
+    }
+    currentBits = '';
+    bitsText.textContent = '';
+  }
+
+  function loop(){
+    rafId = requestAnimationFrame(loop);
+    const rms = getRMS();
+    const threshold = noiseFloorFromSensitivity();
+    setRing(rms, voicing ? (phase==='listening' ? 'listening' : 'listening') : null);
+
+    const now = performance.now();
+    const isVoiced = rms > threshold;
+
+    if(phase === 'calib0' || phase === 'calib1'){
+      handleCalibrationFrame(isVoiced, now);
+      return;
+    }
+    if(phase !== 'listening') return;
+
+    if(isVoiced){
+      if(!voicing){ voicing = true; voiceStartTime = now; segmentFeatures = []; }
+      segmentFeatures.push(getFeatureVector());
+      silenceStart = null;
+    } else {
+      if(voicing){
+        // sound just ended
+        const dur = now - voiceStartTime;
+        voicing = false;
+        if(dur >= MIN_SEGMENT_MS && segmentFeatures.length){
+          const feat = averageVectors(segmentFeatures);
+          const sim0 = cosineSim(feat, ref0);
+          const sim1 = cosineSim(feat, ref1);
+          const bit = sim1 > sim0 ? '1' : '0';
+          currentBits += bit;
+          bitsText.textContent = currentBits.split('').join(' ');
+          setRing(0, bit==='0' ? 'zero' : 'one');
+        }
+        silenceStart = now;
+      } else if(silenceStart === null){
+        silenceStart = now;
+      }
+      if(currentBits && silenceStart && (now - silenceStart) >= wordGapMs){
+        finalizeWord();
+        silenceStart = null;
+      }
+    }
+  }
+
+  function handleCalibrationFrame(isVoiced, now){
+    if(isVoiced){
+      if(!voicing){ voicing = true; voiceStartTime = now; segmentFeatures = []; }
+      segmentFeatures.push(getFeatureVector());
+    } else if(voicing){
+      const dur = now - voiceStartTime;
+      voicing = false;
+      if(dur >= MIN_CALIB_MS && segmentFeatures.length){
+        const feat = averageVectors(segmentFeatures);
+        if(phase === 'calib0'){
+          ref0 = feat;
+          statusText.textContent = 'تمام! سجّلنا الصوت الأول ✔';
+          statusSub.textContent = 'دلوقتي...';
+          setTimeout(startCalib1, 900);
+        } else {
+          ref1 = feat;
+          statusText.textContent = 'تمام! سجّلنا الصوت التاني ✔';
+          statusSub.textContent = 'جاهزين نبدأ';
+          setTimeout(startListening, 900);
+        }
+      } else {
+        // too short, ignore and keep waiting
+        segmentFeatures = [];
+      }
+    }
+  }
+
+  function startCalib0(){
+    phase = 'calib0';
+    voicing = false; segmentFeatures = [];
+    statusText.textContent = 'قول صوت 1';
+    statusSub.textContent = 'مثلاً "أآآ" — طوّل الصوت شوية وسيبه';
+    recalBtn.classList.remove('hidden');
+  }
+  function startCalib1(){
+    phase = 'calib1';
+    voicing = false; segmentFeatures = [];
+    statusText.textContent = 'قول صوت 2';
+    statusSub.textContent = 'اختار صوت مختلف عن الأول، مثلاً "أوو"';
+  }
+  function startListening(){
+    phase = 'listening';
+    voicing = false; segmentFeatures = []; currentBits=''; silenceStart=null;
+    bitsText.textContent = '';
+    lastWordEl.textContent = '';
+    statusText.textContent = 'بيسمع دلوقتي…';
+    statusSub.textContent = 'اعمل الصوتين اللي اتدربنا عليهم لتكوين كلمة';
+    logBox.dataset.empty = logBox.dataset.empty || 'true';
+  }
+
+  startBtn.addEventListener('click', async ()=>{
+    startBtn.disabled = true;
+    statusText.textContent = 'جاري التجهيز…';
+    statusSub.textContent = 'امنح الأداة إذن استخدام الميكروفون';
+    try{
+      await initAudio();
+    }catch(err){
+      statusText.textContent = 'تعذر الوصول للميكروفون';
+      statusSub.textContent = 'تأكد من إعطاء إذن الميكروفون للمتصفح وحاول تاني';
+      startBtn.disabled = false;
+      return;
+    }
+    startBtn.classList.add('hidden');
+    startCalib0();
+    if(!rafId) loop();
+  });
+
+  recalBtn.addEventListener('click', ()=>{
+    if(!audioCtx){ return; }
+    ref0 = null; ref1 = null;
+    startCalib0();
+  });
+
+})();
+</script>
+</body>
+</html>
