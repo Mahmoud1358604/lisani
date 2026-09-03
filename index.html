@@ -141,8 +141,8 @@
       <div class="ring-core" id="ringCore"><div class="dot"></div></div>
     </div>
 
-    <div class="status" id="statusText">جاري التجهيز…</div>
-    <div class="status sub" id="statusSub">امنح الأداة إذن استخدام الميكروفون</div>
+    <div class="status" id="statusText">أهلاً بيك في لساني</div>
+    <div class="status sub" id="statusSub">للاستخدام اضغط زرار بدء</div>
 
     <div class="bits" id="bitsText"></div>
     <div class="last-word" id="lastWord"></div>
@@ -259,7 +259,10 @@
     for(const code of codes){
       const tr = document.createElement('tr');
       tr.innerHTML = `<td class="code">${code}</td><td>${escapeHtml(dict[code])}</td>
-        <td class="del"><button data-code="${code}">حذف</button></td>`;
+        <td class="del">
+          <button data-speak="${code}" style="border-color:var(--mint); color:var(--mint); margin-inline-end:4px;">🔊</button>
+          <button data-code="${code}">حذف</button>
+        </td>`;
       dictBody.appendChild(tr);
     }
     dictBody.querySelectorAll('button[data-code]').forEach(b=>{
@@ -267,6 +270,12 @@
         delete dict[b.dataset.code];
         saveJSON('lisani_dict', dict);
         renderDict();
+      });
+    });
+    dictBody.querySelectorAll('button[data-speak]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        unlockSpeech();
+        speak(dict[b.dataset.speak]);
       });
     });
   }
@@ -286,16 +295,80 @@
   renderDict();
 
   // ---------- speech output ----------
-  function speak(text){
-    if(!('speechSynthesis' in window)) return;
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'ar-SA';
-    const voices = speechSynthesis.getVoices();
-    const arVoice = voices.find(v => v.lang && v.lang.startsWith('ar'));
-    if(arVoice) u.voice = arVoice;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
+  let availableVoices = [];
+  let speechUnlocked = false;
+
+  function refreshVoices(){
+    availableVoices = window.speechSynthesis ? speechSynthesis.getVoices() : [];
   }
+  if('speechSynthesis' in window){
+    refreshVoices();
+    speechSynthesis.addEventListener('voiceschanged', refreshVoices);
+  }
+
+  // Must be called directly inside a user-gesture handler (e.g. a click),
+  // otherwise some browsers (Chrome/Safari, especially on mobile) will
+  // silently refuse to produce audio the first time speak() is used.
+  function unlockSpeech(){
+    if(speechUnlocked || !('speechSynthesis' in window)) return;
+    try{
+      const u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      speechSynthesis.speak(u);
+      speechUnlocked = true;
+    }catch(e){ /* ignore */ }
+  }
+
+  function speak(text){
+    if(!('speechSynthesis' in window)){
+      logLine('المتصفح ده مش بيدعم نطق الكلام (Web Speech API)', false);
+      return;
+    }
+    if(!availableVoices.length) refreshVoices();
+    const arVoice = availableVoices.find(v => v.lang && v.lang.toLowerCase().startsWith('ar'));
+    if(!arVoice){
+      logLine('تنبيه: مفيش صوت عربي مثبت على الجهاز، هينطق بأقرب صوت متاح', false);
+    }
+    speechSynthesis.cancel();
+    // Chrome sometimes drops an utterance queued right after cancel(); a tiny
+    // delay makes it reliable.
+    setTimeout(()=>{
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = arVoice ? arVoice.lang : 'ar-SA';
+      if(arVoice) u.voice = arVoice;
+      u.rate = 0.95;
+      u.onstart = ()=>{ audioConfirmedWorking = true; };
+      u.onerror = (e)=> logLine('خطأ في النطق: ' + e.error, false);
+      speechSynthesis.speak(u);
+    }, 60);
+  }
+
+  // ---------- welcome message + autoplay-block fallback ----------
+  const WELCOME_TEXT = 'أهلاً بيك في لساني. للاستخدام، اضغط زرار ابدأ';
+  let audioConfirmedWorking = false;
+  let welcomeAttempted = false;
+
+  function tryWelcomeOnLoad(){
+    if(welcomeAttempted) return;
+    welcomeAttempted = true;
+    speak(WELCOME_TEXT);
+    setTimeout(()=>{
+      if(!audioConfirmedWorking){
+        // Autoplay was blocked by the browser. Wait for the very first tap
+        // anywhere on the page and play the welcome message then.
+        statusSub.textContent = 'دوس في أي مكان في الشاشة عشان يشتغل الصوت';
+        document.addEventListener('pointerdown', function onFirstTap(){
+          document.removeEventListener('pointerdown', onFirstTap);
+          unlockSpeech();
+          speak(WELCOME_TEXT);
+          if(statusSub.textContent === 'دوس في أي مكان في الشاشة عشان يشتغل الصوت'){
+            statusSub.textContent = 'للاستخدام اضغط زرار بدء';
+          }
+        }, { once: true });
+      }
+    }, 1000);
+  }
+  window.addEventListener('load', ()=> setTimeout(tryWelcomeOnLoad, 300));
 
   function logLine(text, ok){
     if(logBox.dataset.empty !== 'false'){ logBox.innerHTML = ''; logBox.dataset.empty = 'false'; }
@@ -330,11 +403,32 @@
     return 0.015 + (sensitivity/20)*0.075;
   }
 
+  // Browsers only allow microphone access on a "secure context":
+  // https://... , http://localhost , or a file opened through a local server.
+  // Opening the file directly (file://) will fail even if permission is granted.
+  function isSecureContextOk(){
+    if(window.isSecureContext) return true;
+    const h = location.hostname;
+    return h === 'localhost' || h === '127.0.0.1';
+  }
+
   async function initAudio(){
+    if(location.protocol === 'file:'){
+      throw new Error('INSECURE_FILE');
+    }
+    if(!isSecureContextOk()){
+      throw new Error('INSECURE_CONTEXT');
+    }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      throw new Error('NO_MEDIADEVICES');
+    }
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     stream = await navigator.mediaDevices.getUserMedia({ audio: {
       echoCancellation:true, noiseSuppression:true, autoGainControl:true
     }});
+    if(audioCtx.state === 'suspended'){
+      await audioCtx.resume();
+    }
     source = audioCtx.createMediaStreamSource(stream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = FFT_SIZE;
@@ -342,6 +436,28 @@
     source.connect(analyser);
     timeData = new Uint8Array(analyser.fftSize);
     freqData = new Uint8Array(analyser.frequencyBinCount);
+  }
+
+  function micErrorMessage(err){
+    if(err && err.message === 'INSECURE_FILE'){
+      return 'فاتح الملف مباشرة (file://). المتصفح بيمنع الميكروفون في الحالة دي حتى لو وافقت على الإذن. شغّل الملف عن طريق سيرفر محلي أو ارفعه على GitHub Pages (رابط https).';
+    }
+    if(err && err.message === 'INSECURE_CONTEXT'){
+      return 'الصفحة مش شغالة على https أو localhost، فالمتصفح بيمنع الميكروفون. استخدم رابط https أو شغّلها محليًا بسيرفر.';
+    }
+    if(err && err.message === 'NO_MEDIADEVICES'){
+      return 'المتصفح ده مش بيدعم الوصول للميكروفون من الصفحة دي. جرب Chrome أو Edge محدّث.';
+    }
+    if(err && err.name === 'NotAllowedError'){
+      return 'الإذن مرفوض من إعدادات المتصفح. افتح إعدادات الموقع (أيقونة القفل بجانب الرابط) وفعّل الميكروفون يدويًا، وبعدين حدّث الصفحة.';
+    }
+    if(err && err.name === 'NotFoundError'){
+      return 'مفيش ميكروفون متاح على الجهاز. تأكد إن الميكروفون متوصل ومش مستخدم من برنامج تاني.';
+    }
+    if(err && err.name === 'NotReadableError'){
+      return 'الميكروفون مستخدم من برنامج تاني حاليًا. اقفل أي برنامج تاني بيستخدمه وحاول تاني.';
+    }
+    return 'تعذر الوصول للميكروفون: ' + (err && (err.message || err.name) || 'خطأ غير معروف');
   }
 
   function getRMS(){
@@ -412,6 +528,15 @@
 
   function loop(){
     rafId = requestAnimationFrame(loop);
+
+    // Don't analyze the mic while the tool itself is talking — otherwise on
+    // devices without headphones it can pick up its own voice as if it were
+    // the user's sound.
+    if('speechSynthesis' in window && speechSynthesis.speaking){
+      setRing(0, null);
+      return;
+    }
+
     const rms = getRMS();
     const threshold = noiseFloorFromSensitivity();
     setRing(rms, voicing ? (phase==='listening' ? 'listening' : 'listening') : null);
@@ -487,32 +612,37 @@
     statusText.textContent = 'قول صوت 1';
     statusSub.textContent = 'مثلاً "أآآ" — طوّل الصوت شوية وسيبه';
     recalBtn.classList.remove('hidden');
+    speak('قول صوت 1');
   }
   function startCalib1(){
     phase = 'calib1';
     voicing = false; segmentFeatures = [];
     statusText.textContent = 'قول صوت 2';
     statusSub.textContent = 'اختار صوت مختلف عن الأول، مثلاً "أوو"';
+    speak('قول صوت 2');
   }
   function startListening(){
     phase = 'listening';
     voicing = false; segmentFeatures = []; currentBits=''; silenceStart=null;
     bitsText.textContent = '';
     lastWordEl.textContent = '';
-    statusText.textContent = 'بيسمع دلوقتي…';
+    statusText.textContent = 'الآن نحن جاهزون';
     statusSub.textContent = 'اعمل الصوتين اللي اتدربنا عليهم لتكوين كلمة';
     logBox.dataset.empty = logBox.dataset.empty || 'true';
+    speak('الآن نحن جاهزون');
   }
 
   startBtn.addEventListener('click', async ()=>{
+    unlockSpeech();
     startBtn.disabled = true;
     statusText.textContent = 'جاري التجهيز…';
     statusSub.textContent = 'امنح الأداة إذن استخدام الميكروفون';
     try{
       await initAudio();
     }catch(err){
+      console.error(err);
       statusText.textContent = 'تعذر الوصول للميكروفون';
-      statusSub.textContent = 'تأكد من إعطاء إذن الميكروفون للمتصفح وحاول تاني';
+      statusSub.textContent = micErrorMessage(err);
       startBtn.disabled = false;
       return;
     }
