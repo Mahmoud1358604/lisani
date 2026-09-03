@@ -168,14 +168,10 @@
 
   <div class="panel">
     <h2>صوت النطق</h2>
-    <div class="slider-row">
-      <label><span>اختر الصوت</span></label>
-      <select id="voiceSelect" style="width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:10px; padding:9px; font-family:inherit;"></select>
-    </div>
     <div class="btn-row" style="margin-top:0; justify-content:flex-start;">
       <button id="testVoiceBtn">🔊 جرّب الصوت</button>
     </div>
-    <div class="hint" id="voiceDiag">بيتم فحص الأصوات المتاحة على جهازك…</div>
+    <div class="hint" id="voiceDiag">بيتم فحص الصوت العربي المتاح على جهازك…</div>
   </div>
 
   <div class="panel">
@@ -307,18 +303,20 @@
   renderDict();
 
   // ---------- speech output ----------
-  const voiceSelect = document.getElementById('voiceSelect');
   const voiceDiag   = document.getElementById('voiceDiag');
   const testVoiceBtn = document.getElementById('testVoiceBtn');
 
   let availableVoices = [];
   let speechUnlocked = false;
-  let chosenVoiceURI = loadJSON('lisani_voice', null);
+  let arabicVoice = null;
 
   function refreshVoices(){
     if(!('speechSynthesis' in window)) return;
     availableVoices = speechSynthesis.getVoices();
-    renderVoiceUI();
+    arabicVoice = availableVoices.find(v => v.lang && v.lang.toLowerCase().startsWith('ar') && v.localService)
+               || availableVoices.find(v => v.lang && v.lang.toLowerCase().startsWith('ar'))
+               || null;
+    renderVoiceDiag();
   }
   if('speechSynthesis' in window){
     refreshVoices();
@@ -327,36 +325,16 @@
     voiceDiag.textContent = 'المتصفح ده مش بيدعم نطق الكلام (Web Speech API) خالص. جرب Chrome أو Edge محدّث.';
   }
 
-  function renderVoiceUI(){
-    if(!availableVoices.length){
-      voiceDiag.textContent = 'المتصفح بيقول إن مفيش أي صوت مثبت على الجهاز. على ويندوز: أضف صوت عربي من إعدادات النظام (Settings → Time & Language → Speech). على أندرويد: تأكد إن Google Text-to-Speech متثبت ومفعّل ومحمّل عليه لغة عربي.';
-      voiceSelect.innerHTML = '<option>لا يوجد أصوات</option>';
-      return;
-    }
-    const arVoices = availableVoices.filter(v => v.lang && v.lang.toLowerCase().startsWith('ar'));
-    voiceSelect.innerHTML = '';
-    availableVoices.forEach(v=>{
-      const opt = document.createElement('option');
-      opt.value = v.voiceURI;
-      opt.textContent = v.name + ' (' + v.lang + ')' + (v.localService ? '' : ' — شبكي');
-      if(v.voiceURI === chosenVoiceURI) opt.selected = true;
-      voiceSelect.appendChild(opt);
-    });
-    if(!chosenVoiceURI){
-      const preferred = arVoices.find(v=>v.localService) || arVoices[0] || availableVoices[0];
-      if(preferred){ chosenVoiceURI = preferred.voiceURI; voiceSelect.value = preferred.voiceURI; }
-    }
-    if(arVoices.length === 0){
-      voiceDiag.textContent = 'مفيش صوت عربي متثبت على جهازك (لقينا ' + availableVoices.length + ' صوت بلغات تانية). النطق هيتم بأقرب صوت متاح، وممكن يبقى غير مفهوم. لإضافة صوت عربي: ويندوز → Settings → Time & Language → Speech، أو أندرويد → إعدادات → تحويل النص إلى كلام → تثبيت بيانات لغة عربي.';
+  function renderVoiceDiag(){
+    if(arabicVoice){
+      voiceDiag.textContent = 'جاهز — هيتم النطق بصوت: ' + arabicVoice.name + ' (' + arabicVoice.lang + ')';
+    } else if(availableVoices.length){
+      voiceDiag.textContent = 'مفيش صوت عربي متثبت على جهازك. لإضافته: ويندوز → Settings → Time & Language → Speech، أو أندرويد → إعدادات → تحويل النص إلى كلام → تثبيت بيانات لغة عربي.';
     } else {
-      voiceDiag.textContent = 'لقينا ' + arVoices.length + ' صوت عربي على جهازك. لو النطق مش شغال أو بيديك خطأ، جرّب تغيّر الصوت من القائمة فوق (يفضل تختار صوت مكتوب جنبه مش "شبكي" لأنه بيشتغل من غير إنترنت وأكثر ثباتًا).';
+      voiceDiag.textContent = 'بيتم فحص الصوت العربي المتاح على جهازك…';
     }
   }
 
-  voiceSelect.addEventListener('change', ()=>{
-    chosenVoiceURI = voiceSelect.value;
-    saveJSON('lisani_voice', chosenVoiceURI);
-  });
   testVoiceBtn.addEventListener('click', ()=>{
     unlockSpeech();
     speak('أهلاً، أنا لساني');
@@ -375,11 +353,6 @@
     }catch(e){ /* ignore */ }
   }
 
-  function pickVoice(){
-    if(!availableVoices.length) return null;
-    return availableVoices.find(v=>v.voiceURI === chosenVoiceURI) || availableVoices[0];
-  }
-
   function speakOnce(text, voice, onEnd, onError){
     const u = new SpeechSynthesisUtterance(text);
     if(voice){ u.voice = voice; u.lang = voice.lang; } else { u.lang = 'ar-SA'; }
@@ -396,18 +369,17 @@
       return;
     }
     if(!availableVoices.length) refreshVoices();
-    const voice = pickVoice();
     speechSynthesis.cancel();
     // Chrome sometimes drops an utterance queued right after cancel(); a tiny
     // delay makes it reliable.
     setTimeout(()=>{
-      speakOnce(text, voice, null, (errName)=>{
-        logLine('فشل النطق بالصوت المختار (' + errName + ')، بنجرب الصوت الافتراضي…', false);
+      speakOnce(text, arabicVoice, null, (errName)=>{
+        logLine('فشل النطق بالصوت العربي (' + errName + ')، بنجرب الصوت الافتراضي…', false);
         // Retry once with no explicit voice — lets the browser fall back to
         // whatever engine actually works on this device.
         setTimeout(()=>{
           speakOnce(text, null, null, (err2)=>{
-            logLine('النطق مش شغال على الجهاز ده خالص (' + err2 + '). جرب صوت تاني من قايمة "صوت النطق" فوق.', false);
+            logLine('النطق مش شغال على الجهاز ده خالص (' + err2 + ').', false);
           });
         }, 80);
       });
@@ -494,8 +466,15 @@
       throw new Error('NO_MEDIADEVICES');
     }
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // NOTE: echoCancellation/noiseSuppression/autoGainControl are deliberately
+    // OFF. On Android especially, requesting them makes Chrome switch the
+    // whole device into "voice call" audio mode for as long as the mic
+    // stream is open — which mutes or heavily attenuates any other audio
+    // (like our spoken-word TTS) while the mic is active. We don't need
+    // echo cancellation anyway since we already stop analyzing the mic
+    // completely while the tool is speaking (see loop()).
     stream = await navigator.mediaDevices.getUserMedia({ audio: {
-      echoCancellation:true, noiseSuppression:true, autoGainControl:true
+      echoCancellation:false, noiseSuppression:false, autoGainControl:false
     }});
     if(audioCtx.state === 'suspended'){
       await audioCtx.resume();
@@ -590,145 +569,4 @@
       speak(word);
       logLine(currentBits + '  →  ' + word, true);
     } else {
-      lastWordEl.innerHTML = '<span class="unknown">كود غير موجود بالقاموس: ' + currentBits + '</span>';
-      logLine(currentBits + '  →  غير معروف', false);
-    }
-    currentBits = '';
-    bitsText.textContent = '';
-  }
-
-  function loop(){
-    rafId = requestAnimationFrame(loop);
-
-    // Don't analyze the mic while the tool itself is talking — otherwise on
-    // devices without headphones it can pick up its own voice as if it were
-    // the user's sound.
-    if('speechSynthesis' in window && speechSynthesis.speaking){
-      setRing(0, null);
-      return;
-    }
-
-    const rms = getRMS();
-    const threshold = noiseFloorFromSensitivity();
-    setRing(rms, voicing ? (phase==='listening' ? 'listening' : 'listening') : null);
-
-    const now = performance.now();
-    const isVoiced = rms > threshold;
-
-    if(phase === 'calib0' || phase === 'calib1'){
-      handleCalibrationFrame(isVoiced, now);
-      return;
-    }
-    if(phase !== 'listening') return;
-
-    if(isVoiced){
-      if(!voicing){ voicing = true; voiceStartTime = now; segmentFeatures = []; }
-      segmentFeatures.push(getFeatureVector());
-      silenceStart = null;
-    } else {
-      if(voicing){
-        // sound just ended
-        const dur = now - voiceStartTime;
-        voicing = false;
-        if(dur >= MIN_SEGMENT_MS && segmentFeatures.length){
-          const feat = averageVectors(segmentFeatures);
-          const sim0 = cosineSim(feat, ref0);
-          const sim1 = cosineSim(feat, ref1);
-          const bit = sim1 > sim0 ? '1' : '0';
-          currentBits += bit;
-          bitsText.textContent = currentBits.split('').join(' ');
-          setRing(0, bit==='0' ? 'zero' : 'one');
-        }
-        silenceStart = now;
-      } else if(silenceStart === null){
-        silenceStart = now;
-      }
-      if(currentBits && silenceStart && (now - silenceStart) >= wordGapMs){
-        finalizeWord();
-        silenceStart = null;
-      }
-    }
-  }
-
-  function handleCalibrationFrame(isVoiced, now){
-    if(isVoiced){
-      if(!voicing){ voicing = true; voiceStartTime = now; segmentFeatures = []; }
-      segmentFeatures.push(getFeatureVector());
-    } else if(voicing){
-      const dur = now - voiceStartTime;
-      voicing = false;
-      if(dur >= MIN_CALIB_MS && segmentFeatures.length){
-        const feat = averageVectors(segmentFeatures);
-        if(phase === 'calib0'){
-          ref0 = feat;
-          statusText.textContent = 'تمام! سجّلنا الصوت الأول ✔';
-          statusSub.textContent = 'دلوقتي...';
-          setTimeout(startCalib1, 900);
-        } else {
-          ref1 = feat;
-          statusText.textContent = 'تمام! سجّلنا الصوت التاني ✔';
-          statusSub.textContent = 'جاهزين نبدأ';
-          setTimeout(startListening, 900);
-        }
-      } else {
-        // too short, ignore and keep waiting
-        segmentFeatures = [];
-      }
-    }
-  }
-
-  function startCalib0(){
-    phase = 'calib0';
-    voicing = false; segmentFeatures = [];
-    statusText.textContent = 'قول صوت 1';
-    statusSub.textContent = 'مثلاً "أآآ" — طوّل الصوت شوية وسيبه';
-    recalBtn.classList.remove('hidden');
-    speak('قول صوت 1');
-  }
-  function startCalib1(){
-    phase = 'calib1';
-    voicing = false; segmentFeatures = [];
-    statusText.textContent = 'قول صوت 2';
-    statusSub.textContent = 'اختار صوت مختلف عن الأول، مثلاً "أوو"';
-    speak('قول صوت 2');
-  }
-  function startListening(){
-    phase = 'listening';
-    voicing = false; segmentFeatures = []; currentBits=''; silenceStart=null;
-    bitsText.textContent = '';
-    lastWordEl.textContent = '';
-    statusText.textContent = 'الآن نحن جاهزون';
-    statusSub.textContent = 'اعمل الصوتين اللي اتدربنا عليهم لتكوين كلمة';
-    logBox.dataset.empty = logBox.dataset.empty || 'true';
-    speak('الآن نحن جاهزون');
-  }
-
-  startBtn.addEventListener('click', async ()=>{
-    unlockSpeech();
-    startBtn.disabled = true;
-    statusText.textContent = 'جاري التجهيز…';
-    statusSub.textContent = 'امنح الأداة إذن استخدام الميكروفون';
-    try{
-      await initAudio();
-    }catch(err){
-      console.error(err);
-      statusText.textContent = 'تعذر الوصول للميكروفون';
-      statusSub.textContent = micErrorMessage(err);
-      startBtn.disabled = false;
-      return;
-    }
-    startBtn.classList.add('hidden');
-    startCalib0();
-    if(!rafId) loop();
-  });
-
-  recalBtn.addEventListener('click', ()=>{
-    if(!audioCtx){ return; }
-    ref0 = null; ref1 = null;
-    startCalib0();
-  });
-
-})();
-</script>
-</body>
-</html>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
