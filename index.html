@@ -167,6 +167,18 @@
   </div>
 
   <div class="panel">
+    <h2>صوت النطق</h2>
+    <div class="slider-row">
+      <label><span>اختر الصوت</span></label>
+      <select id="voiceSelect" style="width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:10px; padding:9px; font-family:inherit;"></select>
+    </div>
+    <div class="btn-row" style="margin-top:0; justify-content:flex-start;">
+      <button id="testVoiceBtn">🔊 جرّب الصوت</button>
+    </div>
+    <div class="hint" id="voiceDiag">بيتم فحص الأصوات المتاحة على جهازك…</div>
+  </div>
+
+  <div class="panel">
     <h2>القاموس</h2>
     <div class="dict-form">
       <input type="text" id="codeInput" placeholder="001" maxlength="10">
@@ -295,20 +307,64 @@
   renderDict();
 
   // ---------- speech output ----------
+  const voiceSelect = document.getElementById('voiceSelect');
+  const voiceDiag   = document.getElementById('voiceDiag');
+  const testVoiceBtn = document.getElementById('testVoiceBtn');
+
   let availableVoices = [];
   let speechUnlocked = false;
+  let chosenVoiceURI = loadJSON('lisani_voice', null);
 
   function refreshVoices(){
-    availableVoices = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+    if(!('speechSynthesis' in window)) return;
+    availableVoices = speechSynthesis.getVoices();
+    renderVoiceUI();
   }
   if('speechSynthesis' in window){
     refreshVoices();
     speechSynthesis.addEventListener('voiceschanged', refreshVoices);
+  } else {
+    voiceDiag.textContent = 'المتصفح ده مش بيدعم نطق الكلام (Web Speech API) خالص. جرب Chrome أو Edge محدّث.';
   }
 
+  function renderVoiceUI(){
+    if(!availableVoices.length){
+      voiceDiag.textContent = 'المتصفح بيقول إن مفيش أي صوت مثبت على الجهاز. على ويندوز: أضف صوت عربي من إعدادات النظام (Settings → Time & Language → Speech). على أندرويد: تأكد إن Google Text-to-Speech متثبت ومفعّل ومحمّل عليه لغة عربي.';
+      voiceSelect.innerHTML = '<option>لا يوجد أصوات</option>';
+      return;
+    }
+    const arVoices = availableVoices.filter(v => v.lang && v.lang.toLowerCase().startsWith('ar'));
+    voiceSelect.innerHTML = '';
+    availableVoices.forEach(v=>{
+      const opt = document.createElement('option');
+      opt.value = v.voiceURI;
+      opt.textContent = v.name + ' (' + v.lang + ')' + (v.localService ? '' : ' — شبكي');
+      if(v.voiceURI === chosenVoiceURI) opt.selected = true;
+      voiceSelect.appendChild(opt);
+    });
+    if(!chosenVoiceURI){
+      const preferred = arVoices.find(v=>v.localService) || arVoices[0] || availableVoices[0];
+      if(preferred){ chosenVoiceURI = preferred.voiceURI; voiceSelect.value = preferred.voiceURI; }
+    }
+    if(arVoices.length === 0){
+      voiceDiag.textContent = 'مفيش صوت عربي متثبت على جهازك (لقينا ' + availableVoices.length + ' صوت بلغات تانية). النطق هيتم بأقرب صوت متاح، وممكن يبقى غير مفهوم. لإضافة صوت عربي: ويندوز → Settings → Time & Language → Speech، أو أندرويد → إعدادات → تحويل النص إلى كلام → تثبيت بيانات لغة عربي.';
+    } else {
+      voiceDiag.textContent = 'لقينا ' + arVoices.length + ' صوت عربي على جهازك. لو النطق مش شغال أو بيديك خطأ، جرّب تغيّر الصوت من القائمة فوق (يفضل تختار صوت مكتوب جنبه مش "شبكي" لأنه بيشتغل من غير إنترنت وأكثر ثباتًا).';
+    }
+  }
+
+  voiceSelect.addEventListener('change', ()=>{
+    chosenVoiceURI = voiceSelect.value;
+    saveJSON('lisani_voice', chosenVoiceURI);
+  });
+  testVoiceBtn.addEventListener('click', ()=>{
+    unlockSpeech();
+    speak('أهلاً، أنا لساني');
+  });
+
   // Must be called directly inside a user-gesture handler (e.g. a click),
-  // otherwise some browsers (Chrome/Safari, especially on mobile) will
-  // silently refuse to produce audio the first time speak() is used.
+  // otherwise some browsers will silently refuse to produce audio the first
+  // time speak() is used.
   function unlockSpeech(){
     if(speechUnlocked || !('speechSynthesis' in window)) return;
     try{
@@ -319,27 +375,42 @@
     }catch(e){ /* ignore */ }
   }
 
+  function pickVoice(){
+    if(!availableVoices.length) return null;
+    return availableVoices.find(v=>v.voiceURI === chosenVoiceURI) || availableVoices[0];
+  }
+
+  function speakOnce(text, voice, onEnd, onError){
+    const u = new SpeechSynthesisUtterance(text);
+    if(voice){ u.voice = voice; u.lang = voice.lang; } else { u.lang = 'ar-SA'; }
+    u.rate = 0.95;
+    u.onstart = ()=>{ audioConfirmedWorking = true; };
+    u.onend = onEnd || null;
+    u.onerror = (e)=>{ if(onError) onError(e.error); };
+    speechSynthesis.speak(u);
+  }
+
   function speak(text){
     if(!('speechSynthesis' in window)){
       logLine('المتصفح ده مش بيدعم نطق الكلام (Web Speech API)', false);
       return;
     }
     if(!availableVoices.length) refreshVoices();
-    const arVoice = availableVoices.find(v => v.lang && v.lang.toLowerCase().startsWith('ar'));
-    if(!arVoice){
-      logLine('تنبيه: مفيش صوت عربي مثبت على الجهاز، هينطق بأقرب صوت متاح', false);
-    }
+    const voice = pickVoice();
     speechSynthesis.cancel();
     // Chrome sometimes drops an utterance queued right after cancel(); a tiny
     // delay makes it reliable.
     setTimeout(()=>{
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = arVoice ? arVoice.lang : 'ar-SA';
-      if(arVoice) u.voice = arVoice;
-      u.rate = 0.95;
-      u.onstart = ()=>{ audioConfirmedWorking = true; };
-      u.onerror = (e)=> logLine('خطأ في النطق: ' + e.error, false);
-      speechSynthesis.speak(u);
+      speakOnce(text, voice, null, (errName)=>{
+        logLine('فشل النطق بالصوت المختار (' + errName + ')، بنجرب الصوت الافتراضي…', false);
+        // Retry once with no explicit voice — lets the browser fall back to
+        // whatever engine actually works on this device.
+        setTimeout(()=>{
+          speakOnce(text, null, null, (err2)=>{
+            logLine('النطق مش شغال على الجهاز ده خالص (' + err2 + '). جرب صوت تاني من قايمة "صوت النطق" فوق.', false);
+          });
+        }, 80);
+      });
     }, 60);
   }
 
