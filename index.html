@@ -147,16 +147,6 @@
     <div class="bits" id="bitsText"></div>
     <div class="last-word" id="lastWord"></div>
 
-    <div class="panel" style="margin-top:18px; margin-bottom:0; text-align:right;">
-      <h2>الجملة الحالية</h2>
-      <div id="sentenceText" style="font-size:22px; font-weight:700; line-height:1.8; min-height:42px;">—</div>
-      <div class="btn-row" style="justify-content:flex-start; margin-top:12px;">
-        <button id="speakSentenceBtn" disabled>🔊 انطق الجملة</button>
-        <button class="ghost" id="clearSentenceBtn">مسح الجملة</button>
-      </div>
-      <div class="hint">كل كلمة يتم التعرف عليها تُضاف للجملة. عند الضغط على «انطق الجملة» تُنطق الكلمات بالتتابع مع وقفة ثانية تقريبًا بين كل كلمة.</div>
-    </div>
-
     <div class="btn-row">
       <button class="primary" id="startBtn">بدء</button>
       <button class="ghost hidden" id="recalBtn">إعادة معايرة الصوتين</button>
@@ -171,9 +161,9 @@
     </div>
     <div class="slider-row">
       <label><span>مدة الوقفة بين الكلمات</span><span id="gapVal">1.2 ثانية</span></label>
-      <input type="range" id="gapSlider" min="5" max="20" value="10">
+      <input type="range" id="gapSlider" min="6" max="25" value="12">
     </div>
-    <div class="hint">الوقفة القصيرة (أقل من ثانية تقريبًا) تعتبر بين الأصوات داخل نفس الكلمة. عند وقفة حوالي ثانية تُعتبر الكلمة خلصت وتُضاف للجملة.</div>
+    <div class="hint">لما توقف بين صوت والتاني بره الكلمة، الأداة تنتظر بالمدة دي قبل ما تعتبر إن الكلمة خلصت وتنطقها.</div>
   </div>
 
   <div class="panel">
@@ -221,7 +211,7 @@
   const DEFAULT_DICT = { "001": "ماما", "010": "تحبني" };
   let dict = loadJSON('lisani_dict', DEFAULT_DICT);
   let sensitivity = loadJSON('lisani_sens', 8);   // 1..20 -> lower means more sensitive
-  let wordGapMs = loadJSON('lisani_gap', 1000);
+  let wordGapMs = loadJSON('lisani_gap', 1200);
 
   function loadJSON(key, fallback){
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
@@ -247,12 +237,6 @@
   const addWordBtn = document.getElementById('addWordBtn');
   const dictBody   = document.getElementById('dictBody');
   const logBox     = document.getElementById('logBox');
-  const sentenceText = document.getElementById('sentenceText');
-  const speakSentenceBtn = document.getElementById('speakSentenceBtn');
-  const clearSentenceBtn = document.getElementById('clearSentenceBtn');
-
-  let sentenceWords = [];
-  const INTER_WORD_SPEECH_GAP_MS = 1000;
 
   sensSlider.value = sensitivity;
   gapSlider.value = Math.round(wordGapMs/100);
@@ -468,7 +452,7 @@
   // ---------- audio engine ----------
   let audioCtx, analyser, source, stream;
   let timeData, freqData;
-  const FFT_SIZE = 1024;
+  const FFT_SIZE = 2048;
   const FEATURE_BUCKETS = 24;
 
   // calibration refs
@@ -482,8 +466,8 @@
   let segmentFeatures = [];
   let silenceStart = null;
   let currentBits = '';
-  const MIN_SEGMENT_MS = 75;       // allow fast, short sound units
-  const MIN_CALIB_MS = 350;        // calibration needs a slightly longer, clean sample\n  const MAX_LETTER_GAP_MS = 850;     // pauses below this are always eligible to stay inside a word
+  const MIN_SEGMENT_MS = 120;      // ignore very short blips
+  const MIN_CALIB_MS = 350;        // calibration needs a slightly longer, clean sample
 
   function noiseFloorFromSensitivity(){
     // sensitivity slider 1(high sens)..20(low sens) -> RMS threshold 0.015..0.09
@@ -519,7 +503,7 @@
     source = audioCtx.createMediaStreamSource(stream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = FFT_SIZE;
-    analyser.smoothingTimeConstant = 0.22;
+    analyser.smoothingTimeConstant = 0.4;
     source.connect(analyser);
     timeData = new Uint8Array(analyser.fftSize);
     freqData = new Uint8Array(analyser.frequencyBinCount);
@@ -598,67 +582,12 @@
     if(mode) ringCore.classList.add(mode);
   }
 
-  function updateSentenceUI(){
-    sentenceText.textContent = sentenceWords.length ? sentenceWords.join(' ') : '—';
-    speakSentenceBtn.disabled = sentenceWords.length === 0 || !('speechSynthesis' in window);
-  }
-
-  function addWordToSentence(word){
-    sentenceWords.push(word);
-    updateSentenceUI();
-  }
-
-  function clearSentence(){
-    sentenceWords = [];
-    updateSentenceUI();
-    lastWordEl.textContent = '';
-  }
-
-  function speakSentence(){
-    if(!sentenceWords.length) return;
-    unlockSpeech();
-
-    if(!('speechSynthesis' in window)){
-      logLine('النطق غير مدعوم في هذا الجهاز.', false);
-      return;
-    }
-
-    const words = sentenceWords.slice();
-    speechSynthesis.cancel();
-
-    // Speak each recognized word separately so we can guarantee ~1 second
-    // between words. This also avoids relying on browser-specific punctuation timing.
-    let i = 0;
-    const speakNext = () => {
-      if(i >= words.length) return;
-      const voice = pickVoice();
-      const u = new SpeechSynthesisUtterance(words[i]);
-      if(voice){ u.voice = voice; u.lang = voice.lang; }
-      else { u.lang = 'ar-SA'; }
-      u.rate = 0.95;
-      u.onend = () => {
-        i++;
-        if(i < words.length){
-          setTimeout(speakNext, INTER_WORD_SPEECH_GAP_MS);
-        }
-      };
-      u.onerror = () => {
-        i++;
-        if(i < words.length){
-          setTimeout(speakNext, INTER_WORD_SPEECH_GAP_MS);
-        }
-      };
-      speechSynthesis.speak(u);
-    };
-    speakNext();
-  }
-
   function finalizeWord(){
     if(!currentBits){ return; }
     const word = dict[currentBits];
     if(word){
-      lastWordEl.textContent = word;
-      addWordToSentence(word);
+      lastWordEl.innerHTML = word;
+      speak(word);
       logLine(currentBits + '  →  ' + word, true);
     } else {
       lastWordEl.innerHTML = '<span class="unknown">كود غير موجود بالقاموس: ' + currentBits + '</span>';
@@ -714,18 +643,9 @@
       } else if(silenceStart === null){
         silenceStart = now;
       }
-      if(currentBits && silenceStart){
-        const silenceMs = now - silenceStart;
-
-        // A pause shorter than ~0.85s is considered an intra-word pause.
-        // The system keeps waiting for the next sound unit, even if the user
-        // is speaking quickly.
-        if(silenceMs < MAX_LETTER_GAP_MS){
-          // keep collecting
-        } else if(silenceMs >= wordGapMs){
-          finalizeWord();
-          silenceStart = null;
-        }
+      if(currentBits && silenceStart && (now - silenceStart) >= wordGapMs){
+        finalizeWord();
+        silenceStart = null;
       }
     }
   }
@@ -782,10 +702,6 @@
     logBox.dataset.empty = logBox.dataset.empty || 'true';
     speak('الآن نحن جاهزون');
   }
-
-  speakSentenceBtn.addEventListener('click', speakSentence);
-  clearSentenceBtn.addEventListener('click', clearSentence);
-  updateSentenceUI();
 
   startBtn.addEventListener('click', async ()=>{
     unlockSpeech();
